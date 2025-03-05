@@ -1,125 +1,84 @@
-import { launchBrowser, createPage, apiHeaders } from '../utils/browser.js';
-import axios from 'axios';
+import { launchBrowser, createPage } from '../utils/browser.js';
 
 export default class InstagramService {
-    static async downloadContent(url, type) {
+  static async downloadContent(url, type) {
     let browser;
     try {
       browser = await launchBrowser();
-      const page = await createPage(browser, 'https://fastdl.app/');
+      const page = await createPage(browser, 'https://fastvideosave.net/');
 
-      await page.setRequestInterception(true);
+      const API_URL = 'https://api.videodropper.app/allinone';
 
       const pageConfig = {
-        reel: {
-          input: '#search-form-input',
-          api: 'https://fastdl.app/api/convert'
-        },
-        story: {
-          input: '#search-form-input',
-          api: 'https://api-wh.fastdl.app/api/v1/instagram/stories'
-        },
-        post: {
-          input: '#search-form-input',
-          api: 'https://fastdl.app/api/convert'
-        }
+        reel: { input: 'input[name="url"]', api: API_URL },
+        story: { input: 'input[name="url"]', api: API_URL },
+        post: { input: 'input[name="url"]', api: API_URL },
+        facebook: { input: 'input[name="url"]', api: API_URL }
       };
-
-      let apiPayload = null;
-      page.on('request', (request) => {
-        if (request.url().includes(pageConfig[type].api)) {
-          apiPayload = request.postData();
-          request.continue();
-        } else {
-          request.continue().catch(() => {});
-        }
-      });
-
-      await page.goto(`https://fastdl.app/${this.getEndpoint(type)}`, {
+      
+      const endpoint = this.getEndpoint(type);
+      await page.goto(`https://fastvideosave.net/${endpoint}`, {
         waitUntil: 'networkidle2',
         timeout: 60000
       });
 
-      // Handle cookie consent
+      // Handle cookie consent (if any)
       try {
         await page.click('button#cookie-ok', { timeout: 2000 });
-      } catch (e) {}
+      } catch {
+        console.log('No cookie consent button found or already handled.');
+      }
 
-      // Direct paste instead of typing
+      // Ensure the type exists in pageConfig
+      if (!pageConfig[type]) throw new Error(`Invalid content type: ${type}`);
+
+      // Paste URL into input field
       await page.waitForSelector(pageConfig[type].input, { visible: true });
       await page.evaluate((selector, url) => {
         const input = document.querySelector(selector);
-        input.value = url;
-        input.dispatchEvent(new Event('input', { bubbles: true }));
-        input.dispatchEvent(new Event('change', { bubbles: true }));
+        if (input) {
+          input.value = url;
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+          input.dispatchEvent(new Event('change', { bubbles: true }));
+        }
       }, pageConfig[type].input, url);
 
-      // Universal submit button click
-      await page.waitForSelector('button[type="submit"]', { visible: true });
+      // Click Submit Button
       await page.click('button[type="submit"]');
 
-      // Wait for API response
-      await page.waitForResponse(response =>
-        response.url().includes(pageConfig[type].api),
-        { timeout: 30000 }
-      );
+      // Wait for the image and video URLs to load
+      await page.waitForSelector('img[src*="https://dl.fastvideosave.net/"], a[href*="cdninstagram.com"]', {
+        timeout: 15000,
+      }); 
 
-      if (!apiPayload) throw new Error('API payload not captured');
-
-      const response = await axios.post(pageConfig[type].api,
-        JSON.parse(apiPayload),
-        { headers: apiHeaders('https://fastdl.app/') }
-      );
-
-      return this.formatResponse(response.data, type);
+      // Extract both image and video URLs
+      const mediaLinks = await page.evaluate((type) => {
+        const image = document.querySelector('img[src*="https://dl.fastvideosave.net"], img[src*="cdninstagram.com"]');
+      
+        let downloadButton;
+        if (type === "reel" || type === "facebook" ||  type === "story" ) {
+          downloadButton = document.querySelector('a[href*="https://dl.fastvideosave.net/"]');
+        } else {
+          downloadButton = document.querySelector('a[href*="cdninstagram.com"]');
+        }
+      
+        return {
+          imageUrl: image ? image.src : null,
+          downloadUrl: downloadButton ? downloadButton.href : null,
+          type
+        };
+      }, type);
+      // Check if any media URL is missing
+      if (!mediaLinks.imageUrl && !mediaLinks.videoUrl) {
+        throw new Error('No media links found');
+      }
+      return mediaLinks;
     } finally {
       if (browser) await browser.close();
     }
   }
   static getEndpoint(type) {
-    const endpoints = {
-      story: 'story-saver',
-      reel: 'instagram-reels-download',
-      post: 'photo'
-    };
-    return endpoints[type] || 'instagram-reels-download';
-  }
-  static formatResponse(data, type) {
-    let mediaUrl = null;    
-    let thumbnailUrl = null;
-
-    switch (type) {
-      case 'reel':
-        mediaUrl = data.url?.[0]?.url;
-        thumbnailUrl = data.thumb;
-        break;
-
-      case 'story':
-        const storyItem = data.result?.[0];
-        mediaUrl = storyItem?.video_versions?.[0]?.url_downloadable ||
-        storyItem?.image_versions2?.candidates?.[0]?.url;
-        thumbnailUrl = storyItem?.image_versions2?.candidates?.[0]?.url_downloadable;
-        break;
-
-      case 'post':
-        // Post-specific response parsing
-        mediaUrl = data.url?.[0]?.url;
-        thumbnailUrl = data.thumb;
-        break;
-    }
-
-    return {
-      success: !!mediaUrl,
-      type,
-      url: mediaUrl,
-      thumbnail: thumbnailUrl,
-      meta: {
-        username: data.meta?.username || data.author?.username,
-        likes: data.meta?.like_count || 0,
-        description: data.meta?.title || '',
-        timestamp: data.timestamp ? new Date(data.timestamp * 1000) : null,
-        duration: data.video?.duration || null
-      }
-    };
+    const endpoints = { story: 'stories', reel: '', post: 'photo' ,facebook:'facebook'};
+    return endpoints[type] || '';
   }
 }

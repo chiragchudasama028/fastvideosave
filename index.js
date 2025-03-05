@@ -2,10 +2,7 @@ import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 // import { verifyHMAC } from './middleware/verifyHMAC.js';
-
 import instagramRouter from './routes/instagram.route.js';
-// import facebookRouter from './routes/facebook.route.js';
-import youtubeRouter from './routes/youtube.route.js';
 import tiktokRouter from './routes/tiktok.route.js';
 
 const app = express();
@@ -16,11 +13,12 @@ app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true }));
 // app.use(verifyHMAC);
 // Routes
-app.use('/api/instagram', instagramRouter);
-// app.use('/api/facebook', facebookRouter);
-app.use('/api/youtube', youtubeRouter);
-app.use('/api/tiktok', tiktokRouter);
 
+app.use('/api/instagram', instagramRouter);
+app.use('/api/tiktok', tiktokRouter);
+app.get("/", (req, res) => {
+  res.redirect("https://fastvideosave.app/");
+});
 // Error handling
 app.use((err, req, res, next) => {
   console.error(err.stack);
